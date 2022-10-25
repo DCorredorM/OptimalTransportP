@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from collections.abc import Iterable
+from typing import Dict
 
 import numpy as np
 import scipy.stats as sts
@@ -8,6 +9,7 @@ import scipy.stats as sts
 ##################################################
 ################# Measure Spaces #################
 ##################################################
+from measure_spaces.discretization import DiscretizationType, Discretization
 
 
 class MeasureSpace:
@@ -101,13 +103,27 @@ class DiscreteMeasure(Measure):
         return cls(support, mass, measure_space)
 
     @classmethod
-    def from_scipy_continuous(cls, scipy_continuous, bins=None, measure_space: 'MeasureSpace' = None):
-        # TODO: Fix this method
-        n = 1000
-        support, mass = np.histogram(scipy_continuous.rvs(n), bins=bins)
-        support = (support[:-1] + support[1:]) / 2
-        mass = mass / n
-        return cls(support, mass, measure_space)
+    def from_scipy_continuous(
+            cls,
+            scipy_continuous: sts.rv_continuous,
+            discretization: DiscretizationType,
+            discretization_kwargs: Dict,
+            measure_space: 'MeasureSpace' = None
+    ):
+        if discretization == DiscretizationType.DETERMINISTIC:
+            return Discretization.deterministic_discretization(
+                scipy_continuous=scipy_continuous,
+                **discretization_kwargs,
+                measure_space=measure_space
+            )
+        elif discretization == DiscretizationType.RANDOM:
+            return Discretization.random_discretization(
+                scipy_continuous=scipy_continuous,
+                **discretization_kwargs,
+                measure_space=measure_space
+            )
+        else:
+            raise NotImplementedError(f"Discretization {discretization} has not yet been implemented.")
 
     def _measure(self, measurable):
         if isinstance(measurable, Iterable):
