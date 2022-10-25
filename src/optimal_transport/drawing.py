@@ -53,7 +53,6 @@ def marginals_sbs():
 	ax.axis("off")
 
 
-
 if __name__ == '__main__':
 	np.random.seed(754)
 	marginals('kde', bins=30)
