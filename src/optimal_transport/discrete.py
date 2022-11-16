@@ -1,3 +1,4 @@
+import os
 from itertools import product
 from typing import Optional
 
@@ -64,7 +65,7 @@ class OptimalTransport(_OPM):
             idx = list(base_idx)
             idx.remove(t)
             for i, (lhs, rhs) in enumerate(zip(self._coupling.sum(axis=tuple(idx)), mu.mass)):
-                self.model.addConstr(lhs == rhs, name=f"marginal{t}{i}")
+                self.model.addConstr(lhs == rhs, name=f"marginal_({t},{i})")
     
     # Objective value
     def _create_objective_value(self):
@@ -118,7 +119,114 @@ class OptimalTransport(_OPM):
                 self._solution_object = OptimalTransportSolution(self.coupling, self)
         return self._solution_object
 
+    def draw_lp_matrix(self, save_name=None, plotly=True):
+        if plotly:
+            self._draw_lp_matrix_plotly(save_name=save_name)
+        else:
+            self._draw_lp_matrix_mpl(save_name=save_name)
+    
+    def _draw_lp_matrix_mpl(self, save_name=None):
+        A, constr_ranges, _ = self._process_a_for_draw(self.model.getA())
+        figsize = tuple(map(lambda x: 20 * x / A.shape[1], A.shape))[::-1]
+        fig, ax = plt.subplots(figsize=figsize)
+        
+        ax.spy(A, markersize=1, color='black')
 
+        d, u = list(zip(*constr_ranges.values()))
+        # plt.hlines(y=list(map(lambda x: x + 0.5, u)), xmin=[-0.1] * len(u), xmax=[A.shape[1]] * len(u))
+        
+        for color, (name, ranges) in enumerate(constr_ranges.items()):
+            ax.fill_between(
+                x=[-0.1, A.shape[1]],
+                y1=[ranges[0] - 0.5] * 2,
+                y2=[ranges[1] + 0.5] * 2,
+                alpha=0.2,
+                color=plt.cm.tab10(color),
+                label=name
+            )
+
+        pos = ax.get_position()
+        ax.set_position([pos.x0, pos.y0, pos.width * 0.9, pos.height])
+        ax.legend(loc='center right', bbox_to_anchor=(1.1, 0.5))
+        
+        if save_name is not None:
+            os.makedirs(os.path.join(*save_name.split('/')[:-1]), exist_ok=True)
+            plt.savefig(save_name, dpi=300)
+
+    def _draw_lp_matrix_plotly(self, save_name=None):
+        try:
+            import plotly.express as px
+            import plotly.figure_factory as ff
+        except ImportError:
+            logging.warning('Please install plotly and try again!')
+        else:
+            A, constr_ranges, constr_idx = self._process_a_for_draw(self.model.getA())
+            
+            y = list(constr_idx.keys())
+            y = list(map(lambda x: '_'.join(map(str,x)), y))
+            
+            def process_var_names(var):
+                name = var.VarName
+                if COUPLING_NAME in name:
+                    idx = eval(name.split(COUPLING_NAME)[-1])[0]
+                    
+                    return f"{COUPLING_NAME}_{np.unravel_index(idx, self.dimensions)}"
+                else:
+                    return name
+            
+            x = list(map(process_var_names, self.model.getVars()))
+            
+            fig = px.imshow(
+                A.todense(),
+                color_continuous_scale='RdBu',
+                aspect="auto",
+                x=x, y=y
+            )
+
+            fig.update_xaxes(visible=False)
+            fig.update_yaxes(visible=False)
+            fig.update_coloraxes(showscale=False)
+            fig.update_layout(coloraxis_showscale=False)
+            
+            fig.show()
+            
+    def _process_a_for_draw(self, A):
+        
+        def _process_name(constr):
+            type_, num = constr.ConstrName.split('_')
+            num = eval(num)
+            return type_, num
+        
+        constr = self.model.getConstrs()
+        constr_idx = dict(sorted(zip(map(_process_name, constr), range(len(constr))), key=lambda x: x[0]))
+
+        # Sort rows of A
+        A = A[list(constr_idx.values()), :]
+        
+        # MAke groupings
+        constr_types = dict()
+        blist = ['sumConstr']
+        
+        for idx, (cname, num) in enumerate(constr_idx.keys()):
+            
+            if len(num) > 1 and cname not in blist:
+                key = f'{cname}_{num[0]}'
+            else:
+                key = cname
+            
+            if key in constr_types:
+                constr_types[key].append(idx)
+            else:
+                constr_types[key] = [idx]
+        
+        constr_ranges = {k: (min(v), max(v)) for k, v in constr_types.items()}
+        return A, constr_ranges, constr_idx
+        
+        
+        
+        
+  
+    
 class DiscreteOT(OptimalTransport):
     def __init__(self, alpha: DiscreteMeasure, beta: DiscreteMeasure, cost_function: Callable):
         super().__init__([alpha, beta], cost_function)

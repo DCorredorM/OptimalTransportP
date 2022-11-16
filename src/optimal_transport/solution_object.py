@@ -14,6 +14,7 @@ class OptimalTransportSolution:
     def draw_slice(self, t, **kwargs):
         idx = list(range(len(self.coupling.shape)))
         idx.remove(t)
+        
         idx.remove(t + 1)
         
         mat = self.coupling.sum(axis=tuple(idx))
@@ -31,7 +32,7 @@ class OptimalTransportSolution:
             x: np.ndarray,
             y: np.ndarray,
             time: int,
-            grid=True,
+            grid=False,
             hide_ticks=False,
             kind='hist'
     ):
@@ -70,8 +71,8 @@ class OptimalTransportSolution:
             jp.ax_marg_y.tick_params(left=False, right=False, labelleft=False,
                                      labelbottom=False, bottom=False)
         ax = jp.ax_joint
-        ax.set_xlabel(r'$S_'+f'{time+1}' + r'$')
-        ax.set_ylabel(r'$S_'+f'{time}' + r'$')
+        ax.set_xlabel(r'$S_'+f'{time+2}' + r'$')
+        ax.set_ylabel(r'$S_'+f'{time+1}' + r'$')
         if grid:
             _, x_l = np.histogram(x, bins=bins)
             _, y_l = np.histogram(y, bins=bins)

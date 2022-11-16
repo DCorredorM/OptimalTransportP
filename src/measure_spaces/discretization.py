@@ -15,12 +15,15 @@ class Discretization:
     @staticmethod
     def deterministic_discretization(scipy_continuous: sts.rv_continuous, n: int, m: int, **kwargs):
         from measure_spaces import DiscreteMeasure
+        m = int(m)
         support = list(map(lambda i: i / n, range(n * m)))
         mass = [
             Discretization._get_x_i_k(scipy_continuous, n, i) / n
             for i in range(1, n * m)
         ]
-        mass = [1 - sum(mass)] + mass
+        # mass = [1 - sum(mass)] + mass
+        
+        mass = list(map(lambda x: x / sum(mass), mass))
         
         return DiscreteMeasure(support=support, mass=mass, **kwargs)
 
@@ -40,9 +43,3 @@ class Discretization:
         mass = mass / n
         return DiscreteMeasure(support, mass, **kwargs)
         
-        
-        
-        
-        
-
-    

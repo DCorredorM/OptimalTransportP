@@ -19,7 +19,7 @@ class MartingaleOptimalTransport(OptimalTransport):
                         self._coupling[i_0 + i_1] * (self.mu[t+1].support[i_1[0]] - self.mu[t].support[i_0[-1]])
                         for i_1 in product(*[range(i) for i in self.dimensions[t+1:]])
                     ) == 0,
-                    name=f"martingale{t}{i_0}"
+                    name=f"martingale_({t}, {i_0})"
                 )
     
     def _build_model(self):
@@ -55,23 +55,24 @@ class RelaxedMartingaleOptimalTransport(OptimalTransport):
     def _create_auxiliary_variables(self):
         for t in range(len(self.mu) - 1):
             for i_0 in product(*[range(i) for i in self.dimensions[:t + 1]]):
-                self._x_i[i_0] = self.model.addVar(vtype=GRB.CONTINUOUS, lb=-GRB.INFINITY, name=f"sum{i_0}")
-                self._y_i[i_0] = self.model.addVar(vtype=GRB.CONTINUOUS, lb=0, name=f"abs{i_0}")
+                self._x_i[i_0] = self.model.addVar(vtype=GRB.CONTINUOUS, lb=-GRB.INFINITY, name=f"sum_{i_0}")
+                self._y_i[i_0] = self.model.addVar(vtype=GRB.CONTINUOUS, lb=0, name=f"abs_{i_0}")
                 
                 self.model.addConstr(
                     self._x_i[i_0] == gp.quicksum(
                         self._coupling[i_0 + i_1] * (self.mu[t + 1].support[i_1[0]] - self.mu[t].support[i_0[-1]])
                         for i_1 in product(*[range(i) for i in self.dimensions[t + 1:]])
                     ),
-                    name=f"sumConstr{i_0}"
+                    name=f"sumConstr_{i_0}"
                 )
-                self.model.addGenConstrAbs(self._y_i[i_0], self._x_i[i_0], name=f'absConstr{i_0}')
+                self.model.addGenConstrAbs(self._y_i[i_0], self._x_i[i_0], name=f'absConstr_{i_0}')
                 
     def _create_martingale_constraint(self):
         for t in range(len(self.mu) - 1):
             self.model.addConstr(
                 gp.quicksum(self._y_i[i_0] for i_0 in product(*[range(i) for i in self.dimensions[:t + 1]]))
-                <= self.epsilon
+                <= self.epsilon,
+                name=f"martingale_({t},)"
             )
     
     def _build_model(self):
