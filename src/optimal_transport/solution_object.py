@@ -41,7 +41,7 @@ class OptimalTransportSolution:
         
         # This sns function plots lists of pairs (x, y), here we try to create a sample that represents the actual
         # distribution. That is why we create enough samples and multiply them by the frequency given by the coupling.
-        n = 1000
+        n = 100000
         x_y = [
             [(x[i], y[j])] * ceil(n * matrix[i, j])
             for i in range(len(x)) for j in range(len(y)) if matrix[i, j] > 0

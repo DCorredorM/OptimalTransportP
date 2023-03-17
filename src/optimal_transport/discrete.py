@@ -28,7 +28,8 @@ class OptimalTransport(_OPM):
             self,
             mu: List[DiscreteMeasure],
             cost_function: Callable,
-            sense=None
+            sense=None,
+            build=True
     ):
         super().__init__(mu, cost_function)
         self._solution_object = None
@@ -47,9 +48,9 @@ class OptimalTransport(_OPM):
         self.dimensions = tuple([len(m.support) for m in self.mu])
         
         self.logger.info(f"The model will have {prod(self.dimensions)} variables. ")
-        
-        self._build_model()
-        self.model.update()
+        if build:
+            self._build_model()
+            self.model.update()
     
     # Variables
     def _create_coupling_variable(self):
@@ -221,11 +222,7 @@ class OptimalTransport(_OPM):
         
         constr_ranges = {k: (min(v), max(v)) for k, v in constr_types.items()}
         return A, constr_ranges, constr_idx
-        
-        
-        
-        
-  
+    
     
 class DiscreteOT(OptimalTransport):
     def __init__(self, alpha: DiscreteMeasure, beta: DiscreteMeasure, cost_function: Callable):
