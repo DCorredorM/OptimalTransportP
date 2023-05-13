@@ -78,3 +78,7 @@ class OptimalTransportSolution:
             _, y_l = np.histogram(y, bins=bins)
             ax.hlines(y_l, *ax.get_xlim(), color='black', linewidth=.5, alpha=0.6)
             ax.vlines(x_l, *ax.get_ylim(), color='black', linewidth=.5, alpha=0.6)
+    
+    @property
+    def optimal_value(self):
+        return self.instance.model.obj_val

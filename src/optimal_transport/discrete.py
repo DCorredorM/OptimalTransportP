@@ -1,3 +1,5 @@
+from time import time
+
 import os
 from itertools import product
 from typing import Optional
@@ -47,9 +49,13 @@ class OptimalTransport(_OPM):
         
         self.dimensions = tuple([len(m.support) for m in self.mu])
         
+        self.solution_stats = dict()
+        
         self.logger.info(f"The model will have {prod(self.dimensions)} variables. ")
         if build:
+            start_time = time()
             self._build_model()
+            self.solution_stats["build_time"] = time() - start_time
             self.model.update()
     
     # Variables
@@ -80,7 +86,6 @@ class OptimalTransport(_OPM):
         )
     
     def _build_model(self):
-        
         # create_variables
         self._create_coupling_variable()
         
@@ -100,6 +105,7 @@ class OptimalTransport(_OPM):
         else:
             self.logger.warning(self.__class__.INFEASIBILITY_MESSAGE)
         
+        self.record_solution_stats()
         return self.solution_object
     
     def _extract_solution(self):
@@ -223,6 +229,12 @@ class OptimalTransport(_OPM):
         constr_ranges = {k: (min(v), max(v)) for k, v in constr_types.items()}
         return A, constr_ranges, constr_idx
     
+    def record_solution_stats(self):
+        self.solution_stats["number_of_variables"] = self.model.getAttr("NumVars")
+        self.solution_stats["number_of_constraints"] = self.model.getAttr("NumConstrs")
+        self.solution_stats["execution_time"] = self.model.getAttr("Runtime")
+        self.solution_stats["solution_count"] = self.model.getAttr("SolCount")
+
     
 class DiscreteOT(OptimalTransport):
     def __init__(self, alpha: DiscreteMeasure, beta: DiscreteMeasure, cost_function: Callable):

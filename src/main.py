@@ -11,12 +11,12 @@ import seaborn as sns
 from martingale_optimal_transport.discrete import MartingaleOptimalTransport, RelaxedMartingaleOptimalTransport
 from measure_spaces import Measure, DiscreteMeasure, DiscretizationType
 from optimal_transport import OptimalTransport, COUPLING_NAME, OptimalTransportSolution
-from robust_pricing.generators.binomial_generator import BinomialGenerator
+from robust_pricing.marginals_creators.binomial_generator import BinomialGenerator
 
 import gurobipy as gp
 from gurobipy import GRB
 
-from robust_pricing.generators.black_scholes import BlackScholesDiscretization
+from robust_pricing.marginals_creators.black_scholes import BlackScholesDiscretization
 from scipy.stats.sampling import TransformedDensityRejection
 
 
