@@ -18,10 +18,18 @@ from robust_pricing.marginals_creators.binomial_generator import BinomialGenerat
 
 import boto3
 
+import pandas as pd
+import yfinance as yf
+import datetime
+
+
+
 WRITE_LOCAL = True
 BUCKET_NAME = 'mot-experiments'
-NUMBER_OF_GAMMAS = 30
+NUMBER_OF_GAMMAS = 2
 EXPLORATION_POWER = 3
+MATURITY_DATES = ['2023-05-19', '2023-06-23', '2023-07-21', '2023-08-18', '2023-09-15', '2023-10-20', '2023-11-17', '2023-12-15']
+OPTION_DATA_BASE = f'../data/options_data/frozen_date=2023-05-17'
 
 
 def option_generate(pricing_model, path_length, ):
@@ -74,16 +82,17 @@ def get_data_s3_bucket():
     return bucket
 
 
-def write_data(base, key, data, write_local=True):
-    try:
-        bucket = get_data_s3_bucket()
-        bucket.put_object(
-            Body=json.dumps(data),
-            Bucket=base,
-            Key=key
-        )
-    except Exception as e:
-        print(e.with_traceback(e.__traceback__))
+def write_data(base, key, data, write_local=True, write_s3=False):
+    if write_s3:
+        try:
+            bucket = get_data_s3_bucket()
+            bucket.put_object(
+                Body=json.dumps(data),
+                Bucket=base,
+                Key=key
+            )
+        except Exception as e:
+            print(e.with_traceback(e.__traceback__))
     
     if write_local:
         os.makedirs(os.path.join(base, *key.split('/')[:-1]), exist_ok=True)
@@ -92,11 +101,11 @@ def write_data(base, key, data, write_local=True):
 
 
 def run_experiment_binomial(
-        base_name,
-        option_portfolio,
-        marginals,
-        sampling_model,
-        target_function,
+        base_name=None,
+        option_portfolio=None,
+        marginals=None,
+        sampling_model=None,
+        target_function=None,
         test_data=None,
         solve_discrete_version=False,
         check_if_exists=True,
@@ -107,7 +116,7 @@ def run_experiment_binomial(
     experiment_data = {
         "name": os.path.join(
             f'experiment_name={base_name}',
-            f'num_marginals={len(marginals)}',
+            f'num_marginals={len(option_portfolio.option_portfolios)}',
             f'sampling_model={sampling_model.__class__.__name__}',
             f'gamma={gamma}',
             f'id={hash(str(sorted(tuple(kwargs.items()))))}'
@@ -129,7 +138,7 @@ def run_experiment_binomial(
             zeros=zeros,
             gamma=gamma,
             number_of_observations=number_of_observations,
-            time_horizon=len(marginals),
+            time_horizon=len(option_portfolio.option_portfolios),
             sampling_model=sampling_model.__class__.__name__,
             no_trading_strategy=no_trading_strategy,
             binomial_model_granularity=kwargs.get("binomial_model_granularity"),
@@ -153,14 +162,16 @@ def run_experiment_binomial(
         target_function=f,
         super_hedge=True,
         no_trading_strategy=no_trading_strategy,
-        trading_kwargs=trading_kwargs
+        trading_kwargs=trading_kwargs,
+        stats_sliding_window=kwargs.get("stats_sliding_window")
     )
     h_sub = HedgingStrategy(
         option_portfolio=deepcopy(option_portfolio),
         target_function=f,
         super_hedge=False,
         no_trading_strategy=no_trading_strategy,
-        trading_kwargs=trading_kwargs
+        trading_kwargs=trading_kwargs,
+        stats_sliding_window=kwargs.get("stats_sliding_window")
     )
 
     # Set the given gamma
@@ -279,6 +290,59 @@ def get_next_gamma(**kwargs):
     upper_bounds = kwargs.get("upper_bounds")
     lower_bounds = kwargs.get("lower_bounds")
     
+    # start = 60
+    # step = 5
+    start = 1000
+    step = 1000
+
+    if len(tested_gammas) >= NUMBER_OF_GAMMAS:
+        return False
+    
+    if not tested_gammas:
+        next_gamma = start
+    else:
+        next_gamma = tested_gammas[-1] + step
+    times_tried = 0
+    while next_gamma in tested_gammas:
+        random_index = np.random.randint(len(tested_gammas))
+        next_gamma = (next_gamma + tested_gammas[random_index]) // 3
+        times_tried += 1
+        if times_tried > 100:
+            return (next_gamma + max(tested_gammas)) // 3
+    
+    return next_gamma
+
+
+def get_next_gamma__(**kwargs):
+    tested_gammas = kwargs.get("tested_gammas")
+    upper_bounds = kwargs.get("upper_bounds")
+    lower_bounds = kwargs.get("lower_bounds")
+    
+    if len(tested_gammas) >= NUMBER_OF_GAMMAS:
+        return False
+    elif len(tested_gammas) <= EXPLORATION_POWER:
+        return eval(f'1e{len(tested_gammas)}')
+    elif len(tested_gammas) <= 70:
+        next_gamma = (1 + len(tested_gammas)) + 5
+    else:
+        next_gamma = (1 + len(tested_gammas)) + 20
+
+    times_tried = 0
+    while next_gamma in tested_gammas:
+        random_index = np.random.randint(len(tested_gammas))
+        next_gamma = (next_gamma + tested_gammas[random_index]) // 3
+        times_tried += 1
+        if times_tried > 100:
+            return (next_gamma + max(tested_gammas)) // 3
+
+    return next_gamma
+
+
+def get_next_gamma_(**kwargs):
+    tested_gammas = kwargs.get("tested_gammas")
+    upper_bounds = kwargs.get("upper_bounds")
+    lower_bounds = kwargs.get("lower_bounds")
+    
     if len(tested_gammas) >= NUMBER_OF_GAMMAS:
         return False
     elif len(tested_gammas) <= EXPLORATION_POWER:
@@ -300,7 +364,7 @@ def get_next_gamma(**kwargs):
         times_tried = 0
         while next_gamma in tested_gammas:
             random_index = np.random.randint(len(tested_gammas))
-            next_gamma = (next_gamma + tested_gammas[random_index]) // 2
+            next_gamma = (next_gamma + tested_gammas[random_index]) // 3
             times_tried += 1
             if times_tried > 100:
                 return (next_gamma + max(tested_gammas)) // 3
@@ -309,15 +373,17 @@ def get_next_gamma(**kwargs):
         
         
 def loop_through_gammas(
-        base_name,
-        binomial_model,
-        path_length,
-        marginals,
-        sampling_model,
-        target_function,
-        num_test_data,
-        solve_discrete_version,
-        number_of_observations,
+        base_name=None,
+        binomial_model=None,
+        path_length=None,
+        marginals=None,
+        sampling_model=None,
+        target_function=None,
+        num_test_data=None,
+        solve_discrete_version=None,
+        number_of_observations=None,
+        option_portfolio=None,
+        test_data=None,
         **kwargs
 ):
     state = dict(
@@ -329,22 +395,31 @@ def loop_through_gammas(
     no_trading_strategy = kwargs.pop("no_trading_strategy", False)
     
     while gamma := get_next_gamma(**state):
+        print("#\n"*10)
+        print(f"started with gamma: {gamma}")
+        print("#\n" * 10)
+        if option_portfolio is None:
+            option_portfolio = option_generate(pricing_model=binomial_model, path_length=path_length)
+        else:
+            option_portfolio = deepcopy(option_portfolio)
+            
+        if test_data is None:
+            if binomial_model:
+                test_data = binomial_model(num_test_data)
         experiments_data = run_experiment_binomial(
             base_name=base_name,
-            option_portfolio=option_generate(pricing_model=binomial_model, path_length=path_length),
+            option_portfolio=option_portfolio,
             marginals=marginals,
             sampling_model=sampling_model,
             target_function=target_function,
-            test_data=binomial_model(num_test_data),
+            test_data=test_data,
             solve_discrete_version=solve_discrete_version,
             gamma=gamma,
             number_of_observations=number_of_observations,
             no_trading_strategy=no_trading_strategy,
-            binomial_model_granularity=binomial_model.granularity,
-            binomial_model_up_factor=binomial_model.up_factor,
-            binomial_model_observed_times=binomial_model.observed_times,
             **kwargs
         )
+        print(f'{experiments_data["name"]}')
         
         state["tested_gammas"].append(gamma)
         state["upper_bounds"].append(experiments_data["sup_replication_value"])
@@ -449,19 +524,141 @@ def run_experiments_1(path_length=2, solve_discrete_version=True, no_trading_str
         )
 
 
+def create_option_objs_from_yahoo(maturity_date, ticker='AAPL', from_data_local=True):
+    if from_data_local:
+        calls = pd.read_csv(os.path.join(OPTION_DATA_BASE, f'maturity_date={maturity_date}', f'calls.csv'))
+        puts = pd.read_csv(os.path.join(OPTION_DATA_BASE, f'maturity_date={maturity_date}', f'puts.csv'))
+    
+    else:
+        tk = yf.Ticker(ticker)
+        md = tk.history_metadata
+        
+        chain = tk.option_chain(date=maturity_date)
+        calls = chain.calls
+        puts = chain.puts
+
+    needed_columns = ['bid', 'strike', 'lastPrice', 'ask', 'openInterest', 'volume', 'contractSize']
+    calls_objs = [
+        Call(
+            strike=x[1].pop('strike'),
+            price=x[1].pop('lastPrice'),
+            bid=x[1].pop('bid'),
+            ask=x[1].pop('ask'),
+            **x[1]
+        ) for x in calls[needed_columns].iterrows()
+    ]
+    puts_objs = [
+        Put(
+            strike=x[1].pop('strike'),
+            price=x[1].pop('lastPrice'),
+            bid=x[1].pop('bid'),
+            ask=x[1].pop('ask'),
+            **x[1]
+        ) for x in puts[needed_columns].iterrows()
+    ]
+    
+    return calls_objs, puts_objs
+
+
+def create_option_portfolios_from_data(path_length, ticker, observed_times=None):
+    option_portfolios = []
+    if observed_times is None:
+        observed_times = [i * (len(MATURITY_DATES) // path_length) for i in range(1, path_length + 1)]
+
+    maturity_dates = [MATURITY_DATES[min(i, len(MATURITY_DATES) - 1)] for i in observed_times]
+    for m in maturity_dates:
+        o = OneMaturityOptionPortfolio(*create_option_objs_from_yahoo(m, ticker=ticker))
+        option_portfolios.append(o)
+    
+    option_portfolio = DiagonalOptionPortfolio(option_portfolios)
+
+    tk = yf.Ticker(ticker)
+    md = tk.history_metadata
+    spot_price = md['chartPreviousClose']
+    
+    return option_portfolio, spot_price
+
+
+def run_experiments_2(path_length=2, solve_discrete_version=True, no_trading_strategy=True, ticker="AAPL"):
+    """
+    Experiments 3: Vailla call option  for apple
+
+    We try to find the price of vanilla path independent option.
+
+    1. We will solve the LP version of it
+    2. We will solve for different gammas the Eckstein approach.
+    """
+    
+    # path_length = 2
+    # binomial_model, marginals = build_base_binomial_model(path_length=path_length, volatility=0.15)
+    # sampling_model = GaussianMartingale(path_length=path_length, mean=100, variance=20 ** 2)
+    trading_kwargs = dict(num_layers=5, width_layers=100)
+    option_portfolios, spot_price = create_option_portfolios_from_data(
+        path_length=path_length,
+        ticker=ticker,
+        observed_times=[2, 3]
+    )
+    
+    num_test_data = 10000
+    number_of_observations = 10000
+    stats_sliding_window = 4000
+
+    def target_function(x):
+        K = 200
+        if isinstance(x, torch.Tensor):
+            return torch.relu(x.select(1, -1) - K)
+        else:
+            return max(x[-1] - K, 0)
+
+    sampling_models = [
+        Uniform(path_length, mean=spot_price, variance=400 ** 2),
+        Gaussian(path_length, mean=spot_price, variance=60 ** 2),
+        GaussianMartingale(path_length, mean=spot_price, variance=50 ** 2),
+        UniformMartingale(path_length, mean=spot_price, variance=200 ** 2),
+    ]
+    
+    for sampling_model in sampling_models:
+        loop_through_gammas(
+            base_name='AAPLCall100',
+            path_length=path_length,
+            option_portfolio=option_portfolios,
+            sampling_model=sampling_model,
+            target_function=target_function,
+            num_test_data=num_test_data,
+            solve_discrete_version=solve_discrete_version,
+            number_of_observations=number_of_observations,
+            no_trading_strategy=no_trading_strategy,
+            trading_kwargs=trading_kwargs,
+            stats_sliding_window=stats_sliding_window
+        )
+
+
+def run_experiments_3(path_length=2, solve_discrete_version=True, no_trading_strategy=True):
+    pass
+    
+
+def consolidate_results_for_experiment(experiment_name):
+    pass
+
+
 if __name__ == '__main__':
     # run_experiments_0(path_length=2, no_trading_strategy=True)
-    # run_experiments_0(path_length=3, no_trading_strategy=True)
-    # run_experiments_0(path_length=5, solve_discrete_version=False, no_trading_strategy=True)
+    # run_experiments_0(path_length=2, no_trading_strategy=False)
     #
     # run_experiments_1(path_length=2, no_trading_strategy=True)
+    # run_experiments_1(path_length=2, no_trading_strategy=False)
+    #
+    # run_experiments_0(path_length=3, no_trading_strategy=True)
+    # Desde experiment_name=PriceCall100/num_marginals=3/sampling_model=GaussianMartingale/gamma=60/id=5234498068713606216
+    # run_experiments_0(path_length=3, no_trading_strategy=False)
+    # run_experiments_0(path_length=5, solve_discrete_version=False, no_trading_strategy=True)
+    # run_experiments_0(path_length=5, solve_discrete_version=False, no_trading_strategy=False)
+    #
     # run_experiments_1(path_length=3, no_trading_strategy=True)
+    # run_experiments_1(path_length=3, no_trading_strategy=False)
+    # run_experiments_1(path_length=5, solve_discrete_version=False, no_trading_strategy=False)
     # run_experiments_1(path_length=5, solve_discrete_version=False, no_trading_strategy=True)
-    
-    run_experiments_0(path_length=2, no_trading_strategy=False)
-    run_experiments_0(path_length=3, no_trading_strategy=False)
-    run_experiments_0(path_length=5, solve_discrete_version=False, no_trading_strategy=False)
 
-    run_experiments_1(path_length=2, no_trading_strategy=False)
-    run_experiments_1(path_length=3, no_trading_strategy=False)
-    run_experiments_1(path_length=5, solve_discrete_version=False, no_trading_strategy=False)
+    run_experiments_2(path_length=2, solve_discrete_version=False, no_trading_strategy=True)
+    # run_experiments_3(path_length=2, solve_discrete_version=False, no_trading_strategy=True)
+    
